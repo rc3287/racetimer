@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="RaceTimer"/>
+  <meta name="theme-color" content="#0a0a0a"/>
+  <link rel="manifest" href="manifest.json"/>
+  <link rel="apple-touch-icon" href="icon-192.png"/>
+  <title>RaceTimer</title>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg:      #080808;
+      --card:    #111111;
+      --border:  #222222;
+      --accent:  #FF6B00;
+      --green:   #00FF88;
+      --red:     #FF3B30;
+      --text:    #F0F0F0;
+      --muted:   #555;
+      --mono:    'Share Tech Mono', monospace;
+      --display: 'Barlow Condensed', sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--display);
+      min-height: 100dvh;
+      overflow-x: hidden;
+      user-select: none;
+    }
+
+    /* ── Noise texture overlay */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none; z-index: 9999; opacity: 0.35;
+    }
+
+    /* ── Layout */
+    .app { display: flex; flex-direction: column; min-height: 100dvh; padding: 0 0 env(safe-area-inset-bottom); }
+
+    /* ── Header */
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; background: var(--bg); z-index: 100;
+    }
+    .logo {
+      font-size: 26px; font-weight: 900; letter-spacing: 6px;
+      color: var(--text); text-transform: uppercase;
+    }
+    .logo span { color: var(--accent); }
+    .header-actions { display: flex; gap: 8px; }
+    .btn-icon {
+      background: var(--card); border: 1px solid var(--border);
+      color: var(--text); border-radius: 10px;
+      padding: 8px 14px; font-family: var(--display);
+      font-size: 13px; font-weight: 700; letter-spacing: 1px;
+      cursor: pointer; transition: all .15s;
+    }
+    .btn-icon:active { transform: scale(0.95); opacity: 0.7; }
+    .btn-icon.danger { border-color: var(--red); color: var(--red); }
+
+    /* ── Counter */
+    .counter-wrap {
+      display: flex; align-items: baseline; justify-content: center;
+      gap: 10px; padding: 20px 0 16px;
+    }
+    .counter-num {
+      font-size: 88px; font-weight: 900; line-height: 1;
+      color: var(--accent); font-family: var(--display);
+      text-shadow: 0 0 40px rgba(255,107,0,0.3);
+      transition: transform .1s;
+    }
+    .counter-num.bump { animation: bump .2s ease-out; }
+    @keyframes bump { 0%{transform:scale(1.2)} 100%{transform:scale(1)} }
+    .counter-label {
+      font-size: 14px; font-weight: 700; letter-spacing: 3px;
+      color: var(--muted); text-transform: uppercase; align-self: center;
+    }
+
+    /* ── Race start button */
+    #start-screen {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; padding: 32px;
+    }
+    .btn-start {
+      background: var(--accent); color: #000;
+      font-family: var(--display); font-size: 20px; font-weight: 900;
+      letter-spacing: 3px; padding: 22px 48px;
+      border: none; border-radius: 16px; cursor: pointer;
+      transition: transform .1s, box-shadow .1s;
+      box-shadow: 0 0 40px rgba(255,107,0,0.4);
+    }
+    .btn-start:active { transform: scale(0.96); box-shadow: none; }
+    .start-hint { color: var(--muted); font-size: 14px; margin-top: 16px; letter-spacing: 1px; }
+
+    /* ── Main timing area */
+    #timing-screen { flex: 1; display: flex; flex-direction: column; padding: 0 16px; }
+
+    /* ── Confirm toggle */
+    .mic-row {
+      display: flex; align-items: center; justify-content: center;
+      gap: 16px; padding: 16px 0 20px;
+    }
+    .confirm-toggle {
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+    }
+    .toggle-label {
+      font-size: 9px; font-weight: 700; letter-spacing: 2px;
+      color: var(--muted); text-transform: uppercase; text-align: center;
+    }
+    .toggle-track {
+      width: 48px; height: 26px; border-radius: 13px;
+      background: var(--border); border: 1px solid var(--border);
+      position: relative; cursor: pointer;
+      transition: background .2s, border-color .2s;
+    }
+    .toggle-track.on { background: var(--accent); border-color: var(--accent); }
+    .toggle-thumb {
+      position: absolute; top: 3px; left: 3px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: var(--muted); transition: transform .2s, background .2s;
+    }
+    .toggle-track.on .toggle-thumb { transform: translateX(22px); background: #000; }
+
+    /* ── Mic button */
+    .mic-wrap { display: flex; justify-content: center; }
+    .mic-btn {
+      width: 140px; height: 140px; border-radius: 50%;
+      background: var(--card);
+      border: 2px solid var(--border);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      cursor: pointer; transition: all .15s;
+      position: relative;
+    }
+    .mic-btn.listening {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 0 rgba(255,107,0,0.4);
+      animation: sonar 1.2s infinite;
+    }
+    @keyframes sonar {
+      0%  { box-shadow: 0 0 0 0 rgba(255,107,0,0.5); }
+      100%{ box-shadow: 0 0 0 28px rgba(255,107,0,0); }
+    }
+    .mic-icon { font-size: 44px; line-height: 1; }
+    .mic-label {
+      font-size: 10px; font-weight: 700; letter-spacing: 2px;
+      color: var(--muted); text-align: center; margin-top: 6px;
+      text-transform: uppercase;
+    }
+    .mic-btn.listening .mic-label { color: var(--accent); }
+
+    /* ── Recognition result */
+    #result-box {
+      background: var(--card); border: 1px solid var(--accent);
+      border-radius: 18px; padding: 20px 20px 16px;
+      margin-bottom: 16px; display: none;
+      animation: slideUp .2s ease-out;
+    }
+    #result-box.visible { display: block; }
+    @keyframes slideUp { from{transform:translateY(12px);opacity:0} to{transform:translateY(0);opacity:1} }
+    #result-box.error { border-color: var(--red); }
+
+    .result-label {
+      font-size: 11px; font-weight: 700; letter-spacing: 3px;
+      color: var(--accent); text-transform: uppercase; margin-bottom: 8px;
+    }
+    .result-box.error .result-label { color: var(--red); }
+    .result-num {
+      font-size: 72px; font-weight: 900; line-height: 1;
+      color: var(--text); font-family: var(--display);
+    }
+    .result-raw {
+      font-size: 13px; color: var(--muted); font-style: italic;
+      font-family: var(--mono); margin: 6px 0 16px;
+    }
+    .result-actions { display: flex; gap: 10px; }
+    .btn-confirm {
+      flex: 1; background: var(--green); color: #000;
+      font-family: var(--display); font-size: 16px; font-weight: 900;
+      letter-spacing: 2px; padding: 14px;
+      border: none; border-radius: 12px; cursor: pointer;
+      transition: transform .1s;
+    }
+    .btn-confirm:active { transform: scale(0.97); }
+    .btn-refuse {
+      flex: 1; background: var(--card); color: var(--muted);
+      font-family: var(--display); font-size: 16px; font-weight: 700;
+      letter-spacing: 1px; padding: 14px;
+      border: 1px solid var(--border); border-radius: 12px; cursor: pointer;
+    }
+
+    /* ── Manual input */
+    .manual-row {
+      display: flex; gap: 8px; margin-bottom: 16px;
+    }
+    .manual-input {
+      flex: 1; background: var(--card); border: 1px solid var(--border);
+      color: var(--text); font-family: var(--mono); font-size: 28px;
+      text-align: center; border-radius: 12px; padding: 10px;
+      outline: none; -webkit-appearance: none;
+    }
+    .manual-input:focus { border-color: var(--accent); }
+    .btn-manual {
+      background: var(--accent); color: #000;
+      font-family: var(--display); font-size: 15px; font-weight: 900;
+      letter-spacing: 1px; padding: 10px 20px;
+      border: none; border-radius: 12px; cursor: pointer;
+      white-space: nowrap;
+    }
+
+    /* ── Arrivals list */
+    .list-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 4px 0 10px;
+      border-top: 1px solid var(--border);
+    }
+    .list-title { font-size: 12px; font-weight: 700; letter-spacing: 3px; color: var(--muted); }
+
+    #arrivals-list { flex: 1; overflow-y: auto; padding-bottom: 16px; }
+    .empty-state { text-align: center; color: var(--muted); font-size: 14px; padding: 32px 0; letter-spacing: 1px; }
+
+    .arrival-row {
+      display: flex; align-items: center;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 10px 12px; margin-bottom: 8px;
+      animation: rowIn .2s ease-out;
+    }
+    @keyframes rowIn { from{transform:translateX(-10px);opacity:0} to{transform:translateX(0);opacity:1} }
+    .arrival-row.new-flash { border-color: var(--green); }
+
+    .pos {
+      width: 30px; height: 30px; border-radius: 50%;
+      background: #1a1a1a; display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      margin-right: 12px; flex-shrink: 0;
+    }
+    .pos.top1 { background: #FFD700; color: #000; }
+    .pos.top2 { background: #C0C0C0; color: #000; }
+    .pos.top3 { background: #CD7F32; color: #000; }
+
+    .arrival-info { flex: 1; }
+    .arrival-dossard { font-size: 24px; font-weight: 900; color: var(--text); line-height: 1; }
+    .arrival-time { font-size: 13px; color: var(--muted); font-family: var(--mono); }
+
+    .row-actions { display: flex; gap: 4px; }
+    .row-btn {
+      background: none; border: none; font-size: 18px;
+      cursor: pointer; padding: 6px; border-radius: 8px;
+      transition: background .1s;
+    }
+    .row-btn:active { background: var(--border); }
+
+    /* ── Edit modal */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+      display: flex; align-items: flex-end; z-index: 200;
+      opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+    .modal-box {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 24px 24px 0 0; padding: 28px 20px 40px;
+      width: 100%; transform: translateY(100%);
+      transition: transform .25s ease-out;
+    }
+    .modal-overlay.open .modal-box { transform: translateY(0); }
+    .modal-title { font-size: 18px; font-weight: 900; letter-spacing: 2px; margin-bottom: 16px; }
+    .modal-input {
+      width: 100%; background: #1a1a1a; border: 1px solid var(--accent);
+      color: var(--text); font-family: var(--mono); font-size: 48px;
+      text-align: center; border-radius: 14px; padding: 16px;
+      outline: none; -webkit-appearance: none; margin-bottom: 16px;
+    }
+    .modal-actions { display: flex; gap: 10px; }
+
+    /* ── Flash overlay on confirm */
+    #flash {
+      position: fixed; inset: 0; background: var(--green);
+      opacity: 0; pointer-events: none; z-index: 300;
+      transition: opacity .05s;
+    }
+    #flash.on { opacity: 0.07; }
+
+    /* ── Clock bar */
+    .clock-bar {
+      text-align: center; font-family: var(--mono);
+      font-size: 13px; color: var(--muted);
+      padding: 6px 0 0;
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="logo">RACE<span>·</span>TIMER</div>
+    <div class="header-actions">
+      <button class="btn-icon" onclick="exportCSV()">📧 CSV</button>
+      <button class="btn-icon danger" onclick="confirmReset()">RESET</button>
+    </div>
+  </header>
+
+  <!-- Start screen -->
+  <div id="start-screen">
+    <div class="counter-wrap">
+      <div class="counter-num" id="counter">0</div>
+      <div class="counter-label">arrivée<span id="plural"></span></div>
+    </div>
+    <button class="btn-start" onclick="startRace()">▶ DÉMARRER LA COURSE</button>
+    <div class="start-hint">Le chrono sera lancé au moment du départ</div>
+  </div>
+
+  <!-- Timing screen -->
+  <div id="timing-screen" style="display:none">
+    <div class="clock-bar" id="clock"></div>
+
+    <div class="counter-wrap">
+      <div class="counter-num" id="counter2">0</div>
+      <div class="counter-label">arrivée<span id="plural2"></span></div>
+    </div>
+
+    <!-- Recognition result -->
+    <div id="result-box">
+      <div class="result-label" id="result-label">DOSSARD RECONNU</div>
+      <div class="result-num" id="result-num"></div>
+      <div class="result-raw" id="result-raw"></div>
+      <div class="result-actions">
+        <button class="btn-confirm" onclick="confirmArrival()">✓ VALIDER</button>
+        <button class="btn-refuse" onclick="dismissResult()">✗ ANNULER</button>
+      </div>
+    </div>
+
+    <!-- Mic + toggle -->
+    <div class="mic-row">
+      <!-- spacer pour centrer le micro -->
+      <div style="width:64px"></div>
+
+      <div class="mic-wrap">
+        <button class="mic-btn" id="mic-btn"
+          ontouchstart="startListen(event)" ontouchend="stopListen()"
+          onmousedown="startListen(event)" onmouseup="stopListen()">
+          <span class="mic-icon" id="mic-icon">🎙️</span>
+          <span class="mic-label" id="mic-label">APPUYER<br>POUR DICTER</span>
+        </button>
+      </div>
+
+      <div class="confirm-toggle">
+        <div class="toggle-track on" id="confirm-track" onclick="toggleConfirm()">
+          <div class="toggle-thumb"></div>
+        </div>
+        <div class="toggle-label" id="confirm-label">CONFIRM<br>ON</div>
+      </div>
+    </div>
+
+    <!-- Manual fallback -->
+    <div class="manual-row">
+      <input class="manual-input" id="manual-input" type="number"
+        inputmode="numeric" placeholder="N°" min="1" max="9999"
+        onkeydown="if(event.key==='Enter') manualAdd()"/>
+      <button class="btn-manual" onclick="manualAdd()">+ AJOUTER</button>
+    </div>
+
+    <!-- List -->
+    <div class="list-header">
+      <span class="list-title">CLASSEMENT PROVISOIRE</span>
+    </div>
+    <div id="arrivals-list">
+      <div class="empty-state" id="empty-msg">En attente des arrivées…</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Edit modal -->
+<div class="modal-overlay" id="edit-modal">
+  <div class="modal-box">
+    <div class="modal-title">CORRIGER LE DOSSARD</div>
+    <input class="modal-input" id="edit-input" type="number" inputmode="numeric" maxlength="4"/>
+    <div class="modal-actions">
+      <button class="btn-confirm" onclick="saveEdit()">SAUVER</button>
+      <button class="btn-refuse" onclick="closeModal()">ANNULER</button>
+    </div>
+  </div>
+</div>
+
+<div id="flash"></div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let arrivals   = [];
+let raceStarted = false;
+let recognition = null;
+let listenTimeout = null;
+let pendingNum  = null;
+let editIdx     = null;
+let clockInterval = null;
+let confirmMode = true; // true = confirmation obligatoire, false = auto
+
+// ── Persist ────────────────────────────────────────────────────────────────
+function load() {
+  try {
+    const a = localStorage.getItem('arrivals');
+    if (a) arrivals = JSON.parse(a);
+    const r = localStorage.getItem('raceStarted');
+    if (r === '1') { raceStarted = true; showTimingScreen(); }
+    const cm = localStorage.getItem('confirmMode');
+    if (cm !== null) { confirmMode = cm === '1'; updateToggleUI(); }
+  } catch(e) {}
+  renderList();
+}
+
+function save() {
+  localStorage.setItem('arrivals', JSON.stringify(arrivals));
+}
+
+// ── Numbers parser FR ──────────────────────────────────────────────────────
+const UNITS = {
+  zéro:0,zero:0,un:1,une:1,deux:2,trois:3,quatre:4,cinq:5,six:6,sept:7,huit:8,neuf:9,
+  dix:10,onze:11,douze:12,treize:13,quatorze:14,quinze:15,seize:16,
+  'dix-sept':17,'dix-huit':18,'dix-neuf':19,
+  'dix sept':17,'dix huit':18,'dix neuf':19,
+  vingt:20,trente:30,quarante:40,cinquante:50,soixante:60,
+  'soixante-dix':70,'soixante dix':70,
+  'quatre-vingt':80,'quatre vingt':80,'quatre-vingts':80,'quatre vingts':80,
+  'quatre-vingt-dix':90,'quatre vingt dix':90,'quatre-vingts-dix':90,
+  cent:100,cents:100,mille:1000
+};
+
+function parseNumberFR(str) {
+  if (!str) return null;
+  const clean = str.toLowerCase().trim();
+  // Direct digits
+  const direct = parseInt(clean.replace(/\s+/g,''), 10);
+  if (!isNaN(direct) && direct > 0) return direct;
+  // Word parsing
+  let total = 0, current = 0;
+  const tokens = clean.replace(/-/g,' ').split(/\s+/).filter(Boolean);
+  for (const t of tokens) {
+    if (t === 'et') continue;
+    const v = UNITS[t];
+    if (v === undefined) {
+      // try partial digit match
+      const n = parseInt(t, 10);
+      if (!isNaN(n)) current += n;
+      continue;
+    }
+    if (v === 1000) { current = current || 1; total += current * 1000; current = 0; }
+    else if (v === 100) { current = current ? current * 100 : 100; }
+    else current += v;
+  }
+  total += current;
+  return total > 0 && total <= 9999 ? total : null;
+}
+
+// ── Race control ───────────────────────────────────────────────────────────
+function startRace() {
+  raceStarted = true;
+  localStorage.setItem('raceStarted', '1');
+  showTimingScreen();
+  vibrate(50);
+}
+
+function showTimingScreen() {
+  document.getElementById('start-screen').style.display = 'none';
+  document.getElementById('timing-screen').style.display = 'flex';
+  document.getElementById('timing-screen').style.flexDirection = 'column';
+  startClock();
+  renderList();
+}
+
+function startClock() {
+  const el = document.getElementById('clock');
+  clockInterval = setInterval(() => {
+    const now = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    el.textContent = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  }, 500);
+}
+
+function confirmReset() {
+  if (!confirm('Effacer toutes les arrivées et recommencer ?')) return;
+  arrivals = []; raceStarted = false; pendingNum = null;
+  localStorage.removeItem('arrivals');
+  localStorage.removeItem('raceStarted');
+  clearInterval(clockInterval);
+  document.getElementById('start-screen').style.display = 'flex';
+  document.getElementById('timing-screen').style.display = 'none';
+  dismissResult();
+  updateCounter();
+}
+
+// ── Voice ──────────────────────────────────────────────────────────────────
+function initRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { alert('Reconnaissance vocale non supportée sur ce navigateur.'); return; }
+  recognition = new SR();
+  recognition.lang = 'fr-FR';
+  recognition.continuous = false;
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 5;
+
+  recognition.onresult = (e) => {
+    clearTimeout(listenTimeout);
+    const results = Array.from(e.results[0]).map(r => r.transcript);
+    for (const r of results) {
+      const num = parseNumberFR(r);
+      if (num) { showResult(num, r); return; }
+    }
+    showError(results[0] || '');
+  };
+
+  recognition.onend = () => stopListenUI();
+  recognition.onerror = (e) => {
+    if (e.error !== 'no-speech' && e.error !== 'aborted') showError('');
+    stopListenUI();
+  };
+}
+
+function startListen(e) {
+  e.preventDefault();
+  if (!recognition) initRecognition();
+  if (!recognition) return;
+  dismissResult();
+  try {
+    recognition.start();
+    document.getElementById('mic-btn').classList.add('listening');
+    document.getElementById('mic-icon').textContent = '🔴';
+    document.getElementById('mic-label').textContent = 'ÉCOUTE…';
+    // Timeout 4 secondes
+    listenTimeout = setTimeout(() => stopListen(), 4000);
+  } catch(err) {}
+}
+
+function stopListen() {
+  clearTimeout(listenTimeout);
+  try { recognition && recognition.stop(); } catch(e) {}
+  stopListenUI();
+}
+
+function stopListenUI() {
+  document.getElementById('mic-btn').classList.remove('listening');
+  document.getElementById('mic-icon').textContent = '🎙️';
+  document.getElementById('mic-label').innerHTML = 'APPUYER<br>POUR DICTER';
+}
+
+function toggleConfirm() {
+  confirmMode = !confirmMode;
+  localStorage.setItem('confirmMode', confirmMode ? '1' : '0');
+  updateToggleUI();
+  vibrate(20);
+}
+
+function updateToggleUI() {
+  const track = document.getElementById('confirm-track');
+  const label = document.getElementById('confirm-label');
+  if (!track) return;
+  if (confirmMode) {
+    track.classList.add('on');
+    label.textContent = 'CONFIRM\nON';
+    label.innerHTML = 'CONFIRM<br>ON';
+  } else {
+    track.classList.remove('on');
+    label.innerHTML = 'CONFIRM<br><span style="color:var(--red)">OFF</span>';
+  }
+}
+
+function showResult(num, raw) {
+  pendingNum = num;
+  // Mode auto : enregistrement direct sans afficher le panneau de confirmation
+  if (!confirmMode) {
+    addArrival(num);
+    pendingNum = null;
+    return;
+  }
+  document.getElementById('result-label').textContent = 'DOSSARD RECONNU';
+  document.getElementById('result-label').style.color = 'var(--accent)';
+  document.getElementById('result-num').textContent = num;
+  document.getElementById('result-raw').textContent = `"${raw}"`;
+  const box = document.getElementById('result-box');
+  box.classList.remove('error');
+  box.classList.add('visible');
+  vibrate(30);
+}
+
+function showError(raw) {
+  pendingNum = null;
+  document.getElementById('result-label').textContent = 'NON RECONNU';
+  document.getElementById('result-label').style.color = 'var(--red)';
+  document.getElementById('result-num').textContent = '?';
+  document.getElementById('result-raw').textContent = raw ? `"${raw}"` : 'Aucun son détecté';
+  const box = document.getElementById('result-box');
+  box.classList.add('visible', 'error');
+  vibrate([30, 50, 30]);
+}
+
+function dismissResult() {
+  pendingNum = null;
+  document.getElementById('result-box').classList.remove('visible', 'error');
+}
+
+// ── Arrivals ───────────────────────────────────────────────────────────────
+function confirmArrival() {
+  if (!pendingNum) return;
+  addArrival(pendingNum);
+  dismissResult();
+}
+
+function manualAdd() {
+  const v = parseInt(document.getElementById('manual-input').value);
+  if (!v || v <= 0 || v > 9999) { alert('Numéro invalide (1–9999)'); return; }
+  addArrival(v);
+  document.getElementById('manual-input').value = '';
+}
+
+function addArrival(dossard) {
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  arrivals.unshift({ dossard, time, ts: Date.now() });
+  save();
+  renderList();
+  updateCounter();
+  flash();
+  vibrate(60);
+}
+
+function renderList() {
+  updateCounter();
+  const el = document.getElementById('arrivals-list');
+  const empty = document.getElementById('empty-msg');
+  if (!arrivals.length) {
+    empty && (empty.style.display = 'block');
+    // Clear rows
+    Array.from(el.querySelectorAll('.arrival-row')).forEach(r => r.remove());
+    return;
+  }
+  empty && (empty.style.display = 'none');
+  el.innerHTML = '';
+  arrivals.forEach((a, i) => {
+    const posClass = i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
+    const row = document.createElement('div');
+    row.className = 'arrival-row' + (i === 0 ? ' new-flash' : '');
+    setTimeout(() => row.classList.remove('new-flash'), 600);
+    row.innerHTML = `
+      <div class="pos ${posClass}">${i + 1}</div>
+      <div class="arrival-info">
+        <div class="arrival-dossard">${a.dossard}</div>
+        <div class="arrival-time">${a.time}</div>
+      </div>
+      <div class="row-actions">
+        <button class="row-btn" onclick="openEdit(${i})">✏️</button>
+        <button class="row-btn" onclick="deleteArrival(${i})">🗑️</button>
+      </div>`;
+    el.appendChild(row);
+  });
+}
+
+function updateCounter() {
+  const n = arrivals.length;
+  ['counter','counter2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.textContent = n; el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump'); }
+  });
+  ['plural','plural2'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = n > 1 ? 's' : '';
+  });
+}
+
+function deleteArrival(i) {
+  if (!confirm(`Supprimer le dossard ${arrivals[i].dossard} ?`)) return;
+  arrivals.splice(i, 1);
+  save(); renderList();
+}
+
+// ── Edit modal ─────────────────────────────────────────────────────────────
+function openEdit(i) {
+  editIdx = i;
+  document.getElementById('edit-input').value = arrivals[i].dossard;
+  document.getElementById('edit-modal').classList.add('open');
+  setTimeout(() => document.getElementById('edit-input').focus(), 300);
+}
+
+function saveEdit() {
+  const v = parseInt(document.getElementById('edit-input').value);
+  if (!v || v <= 0 || v > 9999) { alert('Numéro invalide'); return; }
+  arrivals[editIdx].dossard = v;
+  save(); renderList(); closeModal();
+}
+
+function closeModal() {
+  document.getElementById('edit-modal').classList.remove('open');
+}
+
+document.getElementById('edit-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+// ── Export CSV ─────────────────────────────────────────────────────────────
+function exportCSV() {
+  if (!arrivals.length) { alert('Aucune arrivée à exporter.'); return; }
+  const rows = [...arrivals].reverse();
+  const csv = 'Position,Dossard,Heure arrivée,Timestamp\n'
+    + rows.map((a, i) => `${i+1},${a.dossard},${a.time},${a.ts}`).join('\n');
+
+  const date = new Date().toLocaleDateString('fr-FR').replace(/\//g,'-');
+  const subject = encodeURIComponent(`Résultats course ${date}`);
+  const body = encodeURIComponent(
+    `Bonjour,\n\nRésultats de la course du ${date} (${arrivals.length} arrivée(s)) :\n\n${csv}\n\nCordialement`
+  );
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+}
+
+// ── Haptics / Flash ────────────────────────────────────────────────────────
+function vibrate(pattern) {
+  try { navigator.vibrate && navigator.vibrate(pattern); } catch(e) {}
+}
+
+function flash() {
+  const el = document.getElementById('flash');
+  el.classList.add('on');
+  setTimeout(() => el.classList.remove('on'), 150);
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  load();
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+});
+</script>
+</body>
+</html>
