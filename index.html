@@ -661,7 +661,12 @@ function extractAllNumbers(str) {
   recognition.onend = () => {
     // Relancer automatiquement si on est en mode écoute
     // et qu'on n'attend pas une confirmation
-    scheduleRestart();
+    // Délai légèrement plus long que dans scheduleRestart pour éviter les doubles appels
+    if (!isListening || pausedForConfirm) return;
+    setTimeout(() => {
+      if (!isListening || pausedForConfirm) return;
+      try { recognition.start(); } catch(e) {}
+    }, 350);
   };
 
   recognition.onerror = (e) => {
@@ -681,10 +686,20 @@ function extractAllNumbers(str) {
 
 function scheduleRestart() {
   if (!isListening || pausedForConfirm) return;
+  // Délai suffisant pour que recognition.abort()/stop() soit terminé
+  // Safari iOS a besoin de ~300ms entre abort et start
   setTimeout(() => {
     if (!isListening || pausedForConfirm) return;
-    try { recognition.start(); } catch(e) {}
-  }, 50);
+    try {
+      recognition.start();
+    } catch(e) {
+      // Si "already started" ou autre, réessayer une fois après un délai
+      setTimeout(() => {
+        if (!isListening || pausedForConfirm) return;
+        try { recognition.start(); } catch(e2) {}
+      }, 300);
+    }
+  }, 250);
 }
 
 function toggleListen() {
@@ -767,7 +782,7 @@ function showResult(num, raw) {
   }
   // Mode CONFIRM ON : bloquer le redémarrage pendant la confirmation
   pausedForConfirm = true;
-  try { recognition && recognition.abort(); } catch(e) {}
+  try { recognition && recognition.stop(); } catch(e) {}
   document.getElementById('result-label').textContent = 'DOSSARD RECONNU';
   document.getElementById('result-label').style.color = 'var(--accent)';
   document.getElementById('result-num').textContent = num;
