@@ -591,20 +591,70 @@ function initRecognition() {
   recognition.interimResults = false;
   recognition.maxAlternatives = 5;
 
+// ── Extraction multi-numéros depuis un seul énoncé ─────────────────────────
+// Séparateurs : virgule, "et", "puis", pause (tiret), slash, espace entre deux groupes
+function extractAllNumbers(str) {
+  if (!str) return [];
+  const clean = str.toLowerCase()
+    .replace(/[,;\/\\|]+/g, ' | ')    // virgules → séparateurs explicites
+    .replace(/\b(puis|ensuite|après|apres|et puis|et)\b/g, ' | ')
+    .replace(/\s{2,}/g, ' ');
+
+  // Découper sur les séparateurs | puis essayer de parser chaque segment
+  const segments = clean.split('|').map(s => s.trim()).filter(Boolean);
+  const results = [];
+  for (const seg of segments) {
+    const n = parseNumberFR(seg);
+    if (n !== null && !results.includes(n)) results.push(n);
+  }
+
+  // Si un seul segment (pas de séparateur), essayer aussi de découper sur
+  // les transitions mot→chiffre ou chiffre→mot : "142 87 213"
+  if (results.length <= 1) {
+    const multiDigit = clean.match(/\b\d{1,4}\b/g);
+    if (multiDigit && multiDigit.length > 1) {
+      for (const m of multiDigit) {
+        const n = parseInt(m, 10);
+        if (n >= 1 && n <= 9999 && !results.includes(n)) results.push(n);
+      }
+    }
+  }
+
+  return results;
+}
+
   recognition.onresult = (e) => {
     const alternatives = Array.from(e.results[0]).map(r => r.transcript);
-    // Afficher le texte brut dans la clock-bar pour diagnostic
     const rawText = alternatives[0] || '';
+
+    // Affichage debug texte brut dans la barre horloge
     const debugEl = document.getElementById('clock');
     if (debugEl) {
       debugEl.textContent = `"${rawText}"`;
-      setTimeout(() => { if (typeof startClock === 'function') startClock(); }, 2500);
+      setTimeout(() => { clearInterval(clockInterval); startClock(); }, 2500);
     }
-    for (const r of alternatives) {
-      const num = parseNumberFR(r);
-      if (num) { showResult(num, r); return; }
+
+    // ── Essayer d'extraire plusieurs numéros d'un coup
+    const nums = extractAllNumbers(rawText);
+
+    if (nums.length > 1) {
+      // Arrivées groupées : enregistrer tout immédiatement (horodatage identique)
+      nums.forEach(n => addArrival(n));
+      scheduleRestart();
+      return;
     }
-    // Rien de valide → on relance sans rien afficher
+
+    if (nums.length === 1) {
+      showResult(nums[0], rawText);
+      return;
+    }
+
+    // Fallback sur les alternatives
+    for (const r of alternatives.slice(1)) {
+      const n = parseNumberFR(r);
+      if (n) { showResult(n, r); return; }
+    }
+
     scheduleRestart();
   };
 
@@ -634,7 +684,7 @@ function scheduleRestart() {
   setTimeout(() => {
     if (!isListening || pausedForConfirm) return;
     try { recognition.start(); } catch(e) {}
-  }, 150);
+  }, 50);
 }
 
 function toggleListen() {
