@@ -424,43 +424,113 @@ function save() {
   localStorage.setItem('arrivals', JSON.stringify(arrivals));
 }
 
-// ── Numbers parser FR ──────────────────────────────────────────────────────
-const UNITS = {
-  zéro:0,zero:0,un:1,une:1,deux:2,trois:3,quatre:4,cinq:5,six:6,sept:7,huit:8,neuf:9,
+// ── Extraction robuste de numéro ───────────────────────────────────────────
+// Stratégie : plusieurs passes successives, on prend le premier résultat valide
+
+const WORDS = {
+  zéro:0,zero:0,
+  un:1,une:1,
+  deux:2,trois:3,quatre:4,cinq:5,six:6,sept:7,huit:8,neuf:9,
   dix:10,onze:11,douze:12,treize:13,quatorze:14,quinze:15,seize:16,
-  'dix-sept':17,'dix-huit':18,'dix-neuf':19,
-  'dix sept':17,'dix huit':18,'dix neuf':19,
+  'dix-sept':17,'dix sept':17,
+  'dix-huit':18,'dix huit':18,
+  'dix-neuf':19,'dix neuf':19,
   vingt:20,trente:30,quarante:40,cinquante:50,soixante:60,
   'soixante-dix':70,'soixante dix':70,
   'quatre-vingt':80,'quatre vingt':80,'quatre-vingts':80,'quatre vingts':80,
-  'quatre-vingt-dix':90,'quatre vingt dix':90,'quatre-vingts-dix':90,
-  cent:100,cents:100,mille:1000
+  'quatre-vingt-dix':90,'quatre vingt dix':90,
+  'quatre-vingts-dix':90,'quatre vingts dix':90,
+  cent:100,cents:100,mille:1000,
+  // chiffres épelés un par un
+  'et':null,
 };
+
+// Mots à ignorer (souvent captés par le micro)
+const NOISE = /\b(dossard|numéro|numero|le|la|les|de|du|au|arrivée|arrivee|c'est|c est|voilà|voila|ok|hop|allez)\b/gi;
 
 function parseNumberFR(str) {
   if (!str) return null;
   const clean = str.toLowerCase().trim();
-  // Direct digits
-  const direct = parseInt(clean.replace(/\s+/g,''), 10);
-  if (!isNaN(direct) && direct > 0) return direct;
-  // Word parsing
+
+  // ── Passe 1 : séquence de chiffres collés ou séparés par espaces/tirets
+  // ex: "142", "1 4 2", "1-4-2"
+  const digitOnly = clean.replace(/[\s\-]/g, '');
+  const d1 = parseInt(digitOnly, 10);
+  if (!isNaN(d1) && d1 >= 1 && d1 <= 9999 && String(d1) === digitOnly) return d1;
+
+  // ── Passe 2 : extraire le premier bloc de chiffres contigus dans la phrase
+  // ex: "dossard 142 arrivé", "numéro 87"
+  const stripped = clean.replace(NOISE, ' ');
+  const m = stripped.match(/\b(\d{1,4})\b/g);
+  if (m) {
+    for (const s of m) {
+      const n = parseInt(s, 10);
+      if (n >= 1 && n <= 9999) return n;
+    }
+  }
+
+  // ── Passe 3 : parsing mots français complets
+  const wordResult = parseWords(stripped);
+  if (wordResult !== null) return wordResult;
+
+  // ── Passe 4 : chiffres épelés un par un "un quatre deux" → 142
+  const spelled = parseSpelled(stripped);
+  if (spelled !== null) return spelled;
+
+  return null;
+}
+
+function parseWords(str) {
+  // Normaliser les formes composées avant tokenisation
+  const norm = str
+    .replace(/quatre[\s-]vingt[\s-]dix/g, 'quatre-vingt-dix')
+    .replace(/quatre[\s-]vingts[\s-]dix/g, 'quatre-vingt-dix')
+    .replace(/quatre[\s-]vingt(?![\s-]dix)/g, 'quatre-vingt')
+    .replace(/soixante[\s-]dix/g, 'soixante-dix')
+    .replace(/dix[\s-](sept|huit|neuf)/g, (_, x) => `dix-${x}`);
+
   let total = 0, current = 0;
-  const tokens = clean.replace(/-/g,' ').split(/\s+/).filter(Boolean);
+  const tokens = norm.replace(/-/g, ' ').split(/\s+/).filter(Boolean);
+  let found = false;
+
   for (const t of tokens) {
     if (t === 'et') continue;
-    const v = UNITS[t];
-    if (v === undefined) {
-      // try partial digit match
-      const n = parseInt(t, 10);
-      if (!isNaN(n)) current += n;
-      continue;
-    }
+
+    // Token est un chiffre pur (mix possible ex: "cent 42")
+    const digit = parseInt(t, 10);
+    if (!isNaN(digit)) { current += digit; found = true; continue; }
+
+    const v = WORDS[t];
+    if (v === undefined || v === null) continue;
+    found = true;
     if (v === 1000) { current = current || 1; total += current * 1000; current = 0; }
     else if (v === 100) { current = current ? current * 100 : 100; }
     else current += v;
   }
+
+  if (!found) return null;
   total += current;
-  return total > 0 && total <= 9999 ? total : null;
+  return total >= 1 && total <= 9999 ? total : null;
+}
+
+function parseSpelled(str) {
+  // "un quatre deux" → [1,4,2] → "142" → 142
+  const digitWords = {
+    zéro:0,zero:0,un:1,une:1,deux:2,trois:3,quatre:4,
+    cinq:5,six:6,sept:7,huit:8,neuf:9
+  };
+  const tokens = str.trim().split(/\s+/);
+  const digits = [];
+  for (const t of tokens) {
+    const v = digitWords[t];
+    if (v !== undefined) digits.push(v);
+    else if (digits.length > 0) break; // séquence interrompue
+  }
+  if (digits.length >= 2 && digits.length <= 4) {
+    const n = parseInt(digits.join(''), 10);
+    if (n >= 1 && n <= 9999) return n;
+  }
+  return null;
 }
 
 // ── Race control ───────────────────────────────────────────────────────────
@@ -490,7 +560,7 @@ function startClock() {
 
 function confirmReset() {
   if (!confirm('Effacer toutes les arrivées et recommencer ?')) return;
-  arrivals = []; raceStarted = false; pendingNum = null; isListening = false;
+  arrivals = []; raceStarted = false; pendingNum = null; isListening = false; pausedForConfirm = false;
   localStorage.removeItem('arrivals');
   localStorage.removeItem('raceStarted');
   clearInterval(clockInterval);
@@ -503,6 +573,8 @@ function confirmReset() {
 }
 
 // ── Voice ──────────────────────────────────────────────────────────────────
+let pausedForConfirm = false; // bloque le redémarrage pendant la confirmation
+
 function initRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
@@ -515,50 +587,54 @@ function initRecognition() {
   }
   recognition = new SR();
   recognition.lang = 'fr-FR';
-  recognition.continuous = true;   // écoute en continu
+  recognition.continuous = false;    // plus fiable sur Safari
   recognition.interimResults = false;
   recognition.maxAlternatives = 5;
 
   recognition.onresult = (e) => {
-    // Parcourir les nouveaux résultats finaux
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      if (!e.results[i].isFinal) continue;
-      const alternatives = Array.from(e.results[i]).map(r => r.transcript);
-      for (const r of alternatives) {
-        const num = parseNumberFR(r);
-        if (num) {
-          showResult(num, r);
-          return;
-        }
-      }
-      // Aucun numéro valide dans ce segment — on ignore et on continue
+    const alternatives = Array.from(e.results[0]).map(r => r.transcript);
+    // Afficher le texte brut dans la clock-bar pour diagnostic
+    const rawText = alternatives[0] || '';
+    const debugEl = document.getElementById('clock');
+    if (debugEl) {
+      debugEl.textContent = `"${rawText}"`;
+      setTimeout(() => { if (typeof startClock === 'function') startClock(); }, 2500);
     }
+    for (const r of alternatives) {
+      const num = parseNumberFR(r);
+      if (num) { showResult(num, r); return; }
+    }
+    // Rien de valide → on relance sans rien afficher
+    scheduleRestart();
   };
 
-  // Safari arrête la reconnaissance après un silence → redémarrage automatique
   recognition.onend = () => {
-    if (isListening) {
-      // Pause de 300ms avant de redémarrer pour éviter les erreurs "already started"
-      setTimeout(() => {
-        if (isListening) {
-          try { recognition.start(); } catch(err) {}
-        }
-      }, 300);
-    } else {
-      setListeningUI(false);
-    }
+    // Relancer automatiquement si on est en mode écoute
+    // et qu'on n'attend pas une confirmation
+    scheduleRestart();
   };
 
   recognition.onerror = (e) => {
-    if (e.error === 'aborted' || e.error === 'no-speech') return; // normaux en continu
     if (e.error === 'not-allowed') {
       isListening = false;
+      pausedForConfirm = false;
       setListeningUI(false);
       alert('Permission microphone refusée. Autorise le microphone dans les réglages Safari.');
+      return;
     }
+    // no-speech, aborted, etc. → on relance simplement
+    scheduleRestart();
   };
 
   return true;
+}
+
+function scheduleRestart() {
+  if (!isListening || pausedForConfirm) return;
+  setTimeout(() => {
+    if (!isListening || pausedForConfirm) return;
+    try { recognition.start(); } catch(e) {}
+  }, 150);
 }
 
 function toggleListen() {
@@ -572,6 +648,7 @@ function toggleListen() {
 function startContinuous() {
   if (!recognition && !initRecognition()) return;
   isListening = true;
+  pausedForConfirm = false;
   dismissResult();
   try {
     recognition.start();
@@ -585,7 +662,8 @@ function startContinuous() {
 
 function stopContinuous() {
   isListening = false;
-  try { recognition && recognition.stop(); } catch(e) {}
+  pausedForConfirm = false;
+  try { recognition && recognition.abort(); } catch(e) {}
   setListeningUI(false);
   vibrate(20);
 }
@@ -634,10 +712,12 @@ function showResult(num, raw) {
   if (!confirmMode) {
     addArrival(num);
     pendingNum = null;
+    scheduleRestart();
     return;
   }
-  // Mode CONFIRM ON : pause de l'écoute pendant la confirmation
-  try { recognition && recognition.stop(); } catch(e) {}
+  // Mode CONFIRM ON : bloquer le redémarrage pendant la confirmation
+  pausedForConfirm = true;
+  try { recognition && recognition.abort(); } catch(e) {}
   document.getElementById('result-label').textContent = 'DOSSARD RECONNU';
   document.getElementById('result-label').style.color = 'var(--accent)';
   document.getElementById('result-num').textContent = num;
@@ -661,13 +741,9 @@ function showError(raw) {
 
 function dismissResult() {
   pendingNum = null;
+  pausedForConfirm = false;
   document.getElementById('result-box').classList.remove('visible', 'error');
-  // Reprendre l'écoute continue si elle était active
-  if (isListening) {
-    setTimeout(() => {
-      if (isListening) try { recognition && recognition.start(); } catch(e) {}
-    }, 300);
-  }
+  scheduleRestart();
 }
 
 // ── Arrivals ───────────────────────────────────────────────────────────────
