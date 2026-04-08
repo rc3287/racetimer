@@ -348,11 +348,9 @@
       <div style="width:64px"></div>
 
       <div class="mic-wrap">
-        <button class="mic-btn" id="mic-btn"
-          ontouchstart="startListen(event)" ontouchend="stopListen()"
-          onmousedown="startListen(event)" onmouseup="stopListen()">
+        <button class="mic-btn" id="mic-btn" onclick="toggleListen()">
           <span class="mic-icon" id="mic-icon">🎙️</span>
-          <span class="mic-label" id="mic-label">APPUYER<br>POUR DICTER</span>
+          <span class="mic-label" id="mic-label">APPUYER<br>POUR DÉMARRER</span>
         </button>
       </div>
 
@@ -406,7 +404,8 @@ let listenTimeout = null;
 let pendingNum  = null;
 let editIdx     = null;
 let clockInterval = null;
-let confirmMode = true; // true = confirmation obligatoire, false = auto
+let confirmMode = true;
+let isListening = false;  // état du mode continu
 
 // ── Persist ────────────────────────────────────────────────────────────────
 function load() {
@@ -491,10 +490,12 @@ function startClock() {
 
 function confirmReset() {
   if (!confirm('Effacer toutes les arrivées et recommencer ?')) return;
-  arrivals = []; raceStarted = false; pendingNum = null;
+  arrivals = []; raceStarted = false; pendingNum = null; isListening = false;
   localStorage.removeItem('arrivals');
   localStorage.removeItem('raceStarted');
   clearInterval(clockInterval);
+  try { recognition && recognition.stop(); } catch(e) {}
+  setListeningUI(false);
   document.getElementById('start-screen').style.display = 'flex';
   document.getElementById('timing-screen').style.display = 'none';
   dismissResult();
@@ -504,56 +505,108 @@ function confirmReset() {
 // ── Voice ──────────────────────────────────────────────────────────────────
 function initRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { alert('Reconnaissance vocale non supportée sur ce navigateur.'); return; }
+  if (!SR) {
+    const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
+    const msg = isIOS
+      ? '⚠️ Reconnaissance vocale indisponible.\n\nSur iPhone/iPad, seul Safari supporte la voix.\n\nOuvre cette page dans Safari pour utiliser le microphone.'
+      : '⚠️ Reconnaissance vocale non supportée par ce navigateur.\n\nEssaie Chrome ou Safari.';
+    alert(msg);
+    return false;
+  }
   recognition = new SR();
   recognition.lang = 'fr-FR';
-  recognition.continuous = false;
+  recognition.continuous = true;   // écoute en continu
   recognition.interimResults = false;
   recognition.maxAlternatives = 5;
 
   recognition.onresult = (e) => {
-    clearTimeout(listenTimeout);
-    const results = Array.from(e.results[0]).map(r => r.transcript);
-    for (const r of results) {
-      const num = parseNumberFR(r);
-      if (num) { showResult(num, r); return; }
+    // Parcourir les nouveaux résultats finaux
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (!e.results[i].isFinal) continue;
+      const alternatives = Array.from(e.results[i]).map(r => r.transcript);
+      for (const r of alternatives) {
+        const num = parseNumberFR(r);
+        if (num) {
+          showResult(num, r);
+          return;
+        }
+      }
+      // Aucun numéro valide dans ce segment — on ignore et on continue
     }
-    showError(results[0] || '');
   };
 
-  recognition.onend = () => stopListenUI();
-  recognition.onerror = (e) => {
-    if (e.error !== 'no-speech' && e.error !== 'aborted') showError('');
-    stopListenUI();
+  // Safari arrête la reconnaissance après un silence → redémarrage automatique
+  recognition.onend = () => {
+    if (isListening) {
+      // Pause de 300ms avant de redémarrer pour éviter les erreurs "already started"
+      setTimeout(() => {
+        if (isListening) {
+          try { recognition.start(); } catch(err) {}
+        }
+      }, 300);
+    } else {
+      setListeningUI(false);
+    }
   };
+
+  recognition.onerror = (e) => {
+    if (e.error === 'aborted' || e.error === 'no-speech') return; // normaux en continu
+    if (e.error === 'not-allowed') {
+      isListening = false;
+      setListeningUI(false);
+      alert('Permission microphone refusée. Autorise le microphone dans les réglages Safari.');
+    }
+  };
+
+  return true;
 }
 
-function startListen(e) {
-  e.preventDefault();
-  if (!recognition) initRecognition();
-  if (!recognition) return;
+function toggleListen() {
+  if (!isListening) {
+    startContinuous();
+  } else {
+    stopContinuous();
+  }
+}
+
+function startContinuous() {
+  if (!recognition && !initRecognition()) return;
+  isListening = true;
   dismissResult();
   try {
     recognition.start();
-    document.getElementById('mic-btn').classList.add('listening');
-    document.getElementById('mic-icon').textContent = '🔴';
-    document.getElementById('mic-label').textContent = 'ÉCOUTE…';
-    // Timeout 4 secondes
-    listenTimeout = setTimeout(() => stopListen(), 4000);
-  } catch(err) {}
+    setListeningUI(true);
+    vibrate(30);
+  } catch(err) {
+    isListening = false;
+    setListeningUI(false);
+  }
 }
 
-function stopListen() {
-  clearTimeout(listenTimeout);
+function stopContinuous() {
+  isListening = false;
   try { recognition && recognition.stop(); } catch(e) {}
-  stopListenUI();
+  setListeningUI(false);
+  vibrate(20);
 }
 
-function stopListenUI() {
-  document.getElementById('mic-btn').classList.remove('listening');
-  document.getElementById('mic-icon').textContent = '🎙️';
-  document.getElementById('mic-label').innerHTML = 'APPUYER<br>POUR DICTER';
+function setListeningUI(on) {
+  const btn   = document.getElementById('mic-btn');
+  const icon  = document.getElementById('mic-icon');
+  const label = document.getElementById('mic-label');
+  if (on) {
+    btn.classList.add('listening');
+    icon.textContent = '🔴';
+    label.innerHTML = 'ÉCOUTE<br>EN COURS…';
+  } else {
+    btn.classList.remove('listening');
+    icon.textContent = '🎙️';
+    label.innerHTML = 'APPUYER<br>POUR DÉMARRER';
+  }
 }
+
+// En mode CONFIRM ON, on met l'écoute en pause le temps de la confirmation
+// puis on la reprend automatiquement après valider/annuler
 
 function toggleConfirm() {
   confirmMode = !confirmMode;
@@ -578,12 +631,13 @@ function updateToggleUI() {
 
 function showResult(num, raw) {
   pendingNum = num;
-  // Mode auto : enregistrement direct sans afficher le panneau de confirmation
   if (!confirmMode) {
     addArrival(num);
     pendingNum = null;
     return;
   }
+  // Mode CONFIRM ON : pause de l'écoute pendant la confirmation
+  try { recognition && recognition.stop(); } catch(e) {}
   document.getElementById('result-label').textContent = 'DOSSARD RECONNU';
   document.getElementById('result-label').style.color = 'var(--accent)';
   document.getElementById('result-num').textContent = num;
@@ -608,13 +662,19 @@ function showError(raw) {
 function dismissResult() {
   pendingNum = null;
   document.getElementById('result-box').classList.remove('visible', 'error');
+  // Reprendre l'écoute continue si elle était active
+  if (isListening) {
+    setTimeout(() => {
+      if (isListening) try { recognition && recognition.start(); } catch(e) {}
+    }, 300);
+  }
 }
 
 // ── Arrivals ───────────────────────────────────────────────────────────────
 function confirmArrival() {
   if (!pendingNum) return;
   addArrival(pendingNum);
-  dismissResult();
+  dismissResult(); // reprend l'écoute automatiquement
 }
 
 function manualAdd() {
@@ -736,6 +796,24 @@ function flash() {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 window.addEventListener('load', () => {
+  // Détection navigateur iOS non-Safari
+  const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent);
+  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+  const hasSpeech = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+
+  if (isIOS && !hasSpeech) {
+    // Afficher bannière persistante
+    const banner = document.createElement('div');
+    banner.style.cssText = `
+      position:fixed; top:0; left:0; right:0; z-index:9998;
+      background:#CC3300; color:#fff; font-family:'Barlow Condensed',sans-serif;
+      font-size:14px; font-weight:700; letter-spacing:1px;
+      padding:12px 16px; text-align:center; line-height:1.5;
+    `;
+    banner.innerHTML = '⚠️ Microphone indisponible sur Edge/Chrome iOS&nbsp;&nbsp;→&nbsp;&nbsp;Ouvre cette page dans <strong>Safari</strong>';
+    document.body.prepend(banner);
+  }
+
   load();
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
