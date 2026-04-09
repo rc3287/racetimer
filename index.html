@@ -661,12 +661,7 @@ function extractAllNumbers(str) {
   recognition.onend = () => {
     // Relancer automatiquement si on est en mode écoute
     // et qu'on n'attend pas une confirmation
-    // Délai légèrement plus long que dans scheduleRestart pour éviter les doubles appels
-    if (!isListening || pausedForConfirm) return;
-    setTimeout(() => {
-      if (!isListening || pausedForConfirm) return;
-      try { recognition.start(); } catch(e) {}
-    }, 350);
+    scheduleRestart();
   };
 
   recognition.onerror = (e) => {
@@ -686,20 +681,10 @@ function extractAllNumbers(str) {
 
 function scheduleRestart() {
   if (!isListening || pausedForConfirm) return;
-  // Délai suffisant pour que recognition.abort()/stop() soit terminé
-  // Safari iOS a besoin de ~300ms entre abort et start
   setTimeout(() => {
     if (!isListening || pausedForConfirm) return;
-    try {
-      recognition.start();
-    } catch(e) {
-      // Si "already started" ou autre, réessayer une fois après un délai
-      setTimeout(() => {
-        if (!isListening || pausedForConfirm) return;
-        try { recognition.start(); } catch(e2) {}
-      }, 300);
-    }
-  }, 250);
+    try { recognition.start(); } catch(e) {}
+  }, 50);
 }
 
 function toggleListen() {
@@ -782,7 +767,7 @@ function showResult(num, raw) {
   }
   // Mode CONFIRM ON : bloquer le redémarrage pendant la confirmation
   pausedForConfirm = true;
-  try { recognition && recognition.stop(); } catch(e) {}
+  try { recognition && recognition.abort(); } catch(e) {}
   document.getElementById('result-label').textContent = 'DOSSARD RECONNU';
   document.getElementById('result-label').style.color = 'var(--accent)';
   document.getElementById('result-num').textContent = num;
@@ -829,7 +814,7 @@ function addArrival(dossard) {
   const now = new Date();
   const pad = n => String(n).padStart(2,'0');
   const time = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
-  arrivals.unshift({ dossard, time, ts: Date.now() });
+  arrivals.push({ dossard, time, ts: Date.now() });
   save();
   renderList();
   updateCounter();
@@ -849,20 +834,24 @@ function renderList() {
   }
   empty && (empty.style.display = 'none');
   el.innerHTML = '';
-  arrivals.forEach((a, i) => {
-    const posClass = i === 0 ? 'top1' : i === 1 ? 'top2' : i === 2 ? 'top3' : '';
+  // Afficher du plus récent au plus ancien (dernier arrivé visible en haut)
+  // mais la position (classement) = ordre d'arrivée réel
+  [...arrivals].reverse().forEach((a, revIdx) => {
+    const pos = arrivals.length - revIdx; // position réelle
+    const posClass = pos === 1 ? 'top1' : pos === 2 ? 'top2' : pos === 3 ? 'top3' : '';
+    const idx = arrivals.length - 1 - revIdx; // index réel dans arrivals[]
     const row = document.createElement('div');
-    row.className = 'arrival-row' + (i === 0 ? ' new-flash' : '');
+    row.className = 'arrival-row' + (revIdx === 0 ? ' new-flash' : '');
     setTimeout(() => row.classList.remove('new-flash'), 600);
     row.innerHTML = `
-      <div class="pos ${posClass}">${i + 1}</div>
+      <div class="pos ${posClass}">${pos}</div>
       <div class="arrival-info">
         <div class="arrival-dossard">${a.dossard}</div>
         <div class="arrival-time">${a.time}</div>
       </div>
       <div class="row-actions">
-        <button class="row-btn" onclick="openEdit(${i})">✏️</button>
-        <button class="row-btn" onclick="deleteArrival(${i})">🗑️</button>
+        <button class="row-btn" onclick="openEdit(${idx})">✏️</button>
+        <button class="row-btn" onclick="deleteArrival(${idx})">🗑️</button>
       </div>`;
     el.appendChild(row);
   });

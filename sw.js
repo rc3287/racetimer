@@ -1,5 +1,5 @@
 // RaceTimer Service Worker — Cache offline complet
-const CACHE = 'racetimer-v5';
+const CACHE = 'racetimer-v6';
 const ASSETS = [
   './',
   './index.html',
