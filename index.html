@@ -606,16 +606,6 @@ function initRecognition() {
       setTimeout(() => { clearInterval(clockInterval); startClock(); }, 2500);
     }
 
-    // Fonction qui répartit les timestamps et enregistre
-    const registerMulti = (nums) => {
-      nums.forEach((n, i) => {
-        const fraction = nums.length === 1 ? 1 : i / (nums.length - 1);
-        const ts = listenStartTime + Math.round(fraction * duration);
-        addArrival(n, ts);
-      });
-      scheduleRestart();
-    };
-
     const raw = rawText.toLowerCase().trim();
 
     // ── Tentative 1 : un seul numéro complet (priorité absolue)
@@ -634,16 +624,29 @@ function initRecognition() {
         const n = parseNumberFR(seg);
         if (n !== null && !nums.includes(n)) nums.push(n);
       }
-      if (nums.length > 1) { registerMulti(nums); return; }
+      if (nums.length > 1) {
+        nums.forEach((n, i) => {
+          const fraction = i / (nums.length - 1);
+          const ts = listenStartTime + Math.round(fraction * duration);
+          addArrival(n, ts);
+        });
+        return; // onend relancera
+      }
       if (nums.length === 1) { showResult(nums[0], rawText); return; }
     }
 
     // ── Tentative 3 : plusieurs blocs de chiffres arabes séparés par espaces
-    // ex: "142 87 213" — uniquement si TOUS les tokens sont des chiffres purs
     const tokens = raw.split(/\s+/);
     if (tokens.length > 1 && tokens.every(t => /^\d{1,4}$/.test(t))) {
       const nums = tokens.map(t => parseInt(t, 10)).filter(n => n >= 1 && n <= 9999);
-      if (nums.length > 1) { registerMulti(nums); return; }
+      if (nums.length > 1) {
+        nums.forEach((n, i) => {
+          const fraction = i / (nums.length - 1);
+          const ts = listenStartTime + Math.round(fraction * duration);
+          addArrival(n, ts);
+        });
+        return; // onend relancera
+      }
     }
 
     // ── Tentative 4 : alternatives de la reconnaissance
@@ -651,8 +654,7 @@ function initRecognition() {
       const n = parseNumberFR(r);
       if (n !== null) { showResult(n, r); return; }
     }
-
-    scheduleRestart();
+    // Rien trouvé → onend relancera
   };
 
   recognition.onend = () => {
